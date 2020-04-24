@@ -39,6 +39,44 @@ var authenticator = function(challenge, callback){
   });
 };
 
+var chalk = require('chalk');
+//function for handling response to direct method invocation
+function onDirectMethodCall(request, response) {
+  // Function to send a direct method reponse to your IoT hub.
+  function directMethodResponse(err) {
+    if(err) {
+      console.error(chalk.red('An error ocurred when sending a method response:\n' + err.toString()));
+    } else {
+        console.log(chalk.green('Response to method \'' + request.methodName + '\' sent successfully.' ));
+    }
+  }
+
+  //Log recieved message
+  console.log(chalk.green('Direct method payload received:'));
+  console.log(chalk.green(request.payload));
+
+  //Send reponse code to IoT Hub
+  response.send(200, 'Received message with payload: ' + request.payload, directMethodResponse);
+
+  /*
+  // Check that a numeric value was passed as a parameter
+  if (isNaN(request.payload)) {
+    console.log(chalk.red('Invalid interval response received in payload'));
+    // Report failure back to your hub.
+    response.send(400, 'Invalid direct method parameter: ' + request.payload, directMethodResponse);
+
+  } else {
+
+    // Reset the interval timer
+    clearInterval(intervalLoop);
+    intervalLoop = setInterval(sendMessage, request.payload * 1000);
+
+    // Report success back to your hub.
+    response.send(200, 'Telemetry interval set: ' + request.payload, directMethodResponse);
+  }
+  */
+}
+
 var credentials = new KeyVault.KeyVaultCredentials(authenticator);
 var client = new KeyVault.KeyVaultClient(credentials);
 
@@ -62,11 +100,18 @@ client.getSecret(vaultUri, secretName, secretVersion).then((result) => {
 
   // Create a message and send it to the IoT hub every second
   setInterval(function(){
+
+    var level = "Bungle in the Jungle";
+    if(Math.random() == 0){
+      level = "storage";
+    }
+
     // Simulate telemetry.
     var temperature = 20 + (Math.random() * 15);
     var message = new Message(JSON.stringify({
       temperature: temperature,
-      humidity: 60 + (Math.random() * 20)
+      humidity: 60 + (Math.random() * 20),
+      level: level
     }));
 
     // Add a custom application property to the message.
@@ -84,5 +129,20 @@ client.getSecret(vaultUri, secretName, secretVersion).then((result) => {
       }
     });
   }, 1000);
-})
 
+  //Receive c2d messages
+  client.on('message', function (msg) {
+    console.log('Id: ' + msg.messageId + ' Body: ' + msg.data);
+    client.complete(msg, function (err) {
+      if (err) {
+        console.error('complete error: ' + err.toString());
+      } else {
+        console.log('complete sent');
+      }
+    });
+  });
+
+  //handler to call onDirectMethodCall function
+  //when making a direct method call use method name 'directMethod'
+  client.onDeviceMethod('directMethod', onDirectMethodCall);
+})
